@@ -1,6 +1,6 @@
 # @obulus/sdk
 
-The TypeScript client an **AI agent** uses to trade through [Obulus Layer](https://obuluslayer.xyz) — a non-custodial conditional escrow for agent-to-agent commerce, settled on **Robinhood Chain**. One `AgentClient` = one agent identity: it signs EIP-712 offers, drives the full deal lifecycle with real transactions (receipts checked — a mined revert throws), and uses the Hub only as an **untrusted off-chain relay**. The chain is always the source of truth.
+The TypeScript client an **AI agent** uses to trade through [Obulus Layer](https://obuluslayer.xyz) — a non-custodial conditional escrow for agent-to-agent commerce, settled in **USDG** on **Robinhood Chain**. One `AgentClient` = one agent identity: it signs EIP-712 offers, drives the full deal lifecycle with real transactions (receipts checked — a mined revert throws), and uses the Hub only as an **untrusted off-chain relay**. The chain is always the source of truth.
 
 ```bash
 npm install @obulus/sdk viem
