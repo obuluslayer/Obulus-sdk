@@ -69,7 +69,7 @@ const { dealId } = await agent.quoteAndFund(
 await agent.confirm(dealId);
 ```
 
-What the buyer side verifies **before any transaction**: quote structure; chain/escrow/token/payTo pinned to the buyer's *own* config (never the seller's claims); the offer is open or directed at this buyer; **arbiter policy** and **window floors** (above); price/bond ceilings; and that the seller's EIP-712 signature recovers to `offer.seller` under the escrow domain — the exact check `fund()` repeats on-chain. The USDC approval on this path is **scoped to exactly `price + buyerBond`** (never infinite), so no standing allowance survives the transaction.
+What the buyer side verifies **before any transaction**: quote structure; chain/escrow/token/payTo pinned to the buyer's *own* config (never the seller's claims); the offer is open or directed at this buyer; **arbiter policy** and **window floors** (above); price/bond ceilings; and that the seller's EIP-712 signature recovers to `offer.seller` under the escrow domain — the exact check `fund()` repeats on-chain. The token approval on this path is **scoped to exactly `price + buyerBond`** (never infinite), so no standing allowance survives the transaction.
 
 Seller side: `serveQuote(request, pricingFn)` builds and signs the quote envelope to return with HTTP 402.
 
@@ -78,7 +78,7 @@ Seller side: `serveQuote(request, pricingFn)` builds and signs the quote envelop
 - **Non-custodial**: funds only ever sit in the immutable `Escrow` contract; payouts are pull-based credits. The Hub cannot move money — if it lies or dies, the chain wins.
 - **Bounded I/O**: RPC calls are capped (1 retry, 12 s timeout); every write waits for its receipt (120 s bound) and throws on a mined revert; all plain-HTTP calls (x402 endpoints, Hub) share `httpTimeoutMs` (default 15 s) — a hung endpoint surfaces as an error, never a stalled agent.
 - **Key hygiene**: the private key lives only inside the in-memory viem account; it is never logged, serialized, or sent anywhere.
-- **The default `fund()` uses an infinite USDC approval** to the (trusted, audited) escrow for gas efficiency; pass `{ scopedApproval: true }` — or use `quoteAndFund`, which always scopes — to approve exact amounts instead.
+- **The default `fund()` uses an infinite token approval** to the (trusted, audited) escrow for gas efficiency; pass `{ scopedApproval: true }` — or use `quoteAndFund`, which always scopes — to approve exact amounts instead.
 
 ## Opt-in surfaces (disabled unless configured)
 
@@ -87,13 +87,13 @@ Seller side: `serveQuote(request, pricingFn)` builds and signs the quote envelop
 | `hubUrl` | `publishOffer`, offer book, dispute-reason / deliverable relay (best-effort — chain stays truth) |
 | `subscriptionEscrow` | Tier-3 "rent": recurring subscriptions (`subOffer`, per-period claim/dispute) |
 | `stakingVault` | standing collateral: `stake` / `unstake` / `withdrawStake` (arbiter-slashable on adjudicated fault) |
-| `yieldVault` | park the agent's **own** idle USDC for share-accounted yield (never escrow funds) |
+| `yieldVault` | park the agent's **own** idle settlement token for share-accounted yield (never escrow funds) |
 | `smartAccount` | ERC-4337 gasless funding (`buildFundCalls` / `buildFundUserOperation`) — needs a live bundler + paymaster |
 | `httpTimeoutMs` | override the 15 s HTTP bound |
 
 Absent config ⇒ the corresponding methods throw a clear error instead of dialing anything.
 
-> **Gasless on Robinhood Chain** — account abstraction is first-class on the chain ([official docs](https://docs.robinhood.com/chain/account-abstraction/)): point `smartAccount.bundlerUrl` at an Alchemy (or ZeroDev) bundler for chain 46630, set `paymaster: true` + `paymasterContext: { policyId }` from your funded gas policy, and `fundViaSmartAccount()` batches approve+fund into one sponsored UserOperation. The smart account becomes the deal's **buyer** (it holds the USDC; buyer-side `confirm`/`dispute`/`withdraw` are also sent as UserOperations from it — see `agents/src/gasless-demo.ts` for the full flow). The operator's gas policy pays the gas.
+> **Gasless on Robinhood Chain** — account abstraction is first-class on the chain ([official docs](https://docs.robinhood.com/chain/account-abstraction/)): point `smartAccount.bundlerUrl` at an Alchemy (or ZeroDev) bundler for chain 46630, set `paymaster: true` + `paymasterContext: { policyId }` from your funded gas policy, and `fundViaSmartAccount()` batches approve+fund into one sponsored UserOperation. The smart account becomes the deal's **buyer** (it holds the settlement token; buyer-side `confirm`/`dispute`/`withdraw` are also sent as UserOperations from it — see `agents/src/gasless-demo.ts` for the full flow). The operator's gas policy pays the gas.
 
 ## API surface
 
