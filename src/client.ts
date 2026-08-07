@@ -41,7 +41,11 @@ export interface AgentConfig {
   rpcUrl: string;
   chainId: number;
   escrow: Address;
-  usdc: Address;
+  /// The escrow's settlement token — USDG on Robinhood Chain mainnet, MockUSDC on testnet.
+  /// Exactly one of `usdg` / `usdc` is required; `usdg` wins when both are given.
+  usdg?: Address;
+  /// @deprecated Use `usdg`. Kept so existing integrations keep compiling through the rename.
+  usdc?: Address;
   privateKey: Hex;
   /// Optional Hub base URL — enables publishOffer + the off-chain content relay (reason/blob).
   hubUrl?: string;
@@ -133,6 +137,9 @@ export class AgentClient {
   private readonly cfg: AgentConfig;
 
   constructor(cfg: AgentConfig) {
+    // The settlement token is not optional in practice — the optionality above only exists so the
+    // deprecated `usdc` spelling still type-checks. Fail loudly rather than sending to address(0).
+    if (!cfg.usdg && !cfg.usdc) throw new Error("AgentClient: `usdg` (settlement token address) is required");
     this.cfg = cfg;
     this.account = privateKeyToAccount(cfg.privateKey);
     this.address = this.account.address;
@@ -158,7 +165,7 @@ export class AgentClient {
       seller: this.address,
       buyer: i.buyer ?? ZERO,
       arbiter: i.arbiter,
-      token: this.cfg.usdc,
+      token: this.cfgUsdc(),
       price: usd6(i.priceUsd).toString(),
       buyerBond: usd6(i.buyerBondUsd).toString(),
       sellerBond: usd6(i.sellerBondUsd).toString(),
@@ -438,7 +445,7 @@ export class AgentClient {
       offer,
       signature,
       escrow: this.cfg.escrow,
-      usdc: this.cfg.usdc,
+      usdc: this.cfgUsdc(),
       chainId: this.cfg.chainId,
       rpcUrl: this.cfg.rpcUrl,
       smartAccount: this.cfg.smartAccount,
@@ -515,8 +522,14 @@ export class AgentClient {
     return (await this.pub.readContract({ address: this.cfg.escrow, abi: escrowAbi, functionName: "credits", args: [of] })) as bigint;
   }
 
+  /// Settlement-token balance — USDG on Robinhood Chain mainnet, MockUSDC on testnet.
+  async usdgBalance(of: Address = this.address): Promise<bigint> {
+    return (await this.pub.readContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "balanceOf", args: [of] })) as bigint;
+  }
+
+  /// @deprecated Use `usdgBalance`. Kept so existing integrations keep working through the rename.
   async usdcBalance(of: Address = this.address): Promise<bigint> {
-    return (await this.pub.readContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "balanceOf", args: [of] })) as bigint;
+    return this.usdgBalance(of);
   }
 
   async ethBalance(of: Address = this.address): Promise<bigint> {
@@ -534,7 +547,7 @@ export class AgentClient {
   /// never re-pull. If a larger (e.g. leftover infinite) allowance already stands, it is reset DOWN to
   /// exactly `amount`; if it already equals `amount`, the approve is skipped.
   async ensureApproval(amount: bigint, opts?: { scopedApproval?: boolean }): Promise<void> {
-    const allowance = (await this.pub.readContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "allowance", args: [this.address, this.cfg.escrow] })) as bigint;
+    const allowance = (await this.pub.readContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "allowance", args: [this.address, this.cfg.escrow] })) as bigint;
     if (opts?.scopedApproval) {
       if (allowance === amount) return; // already scoped to exactly this amount
       await this.approveEscrow(amount);
@@ -546,7 +559,7 @@ export class AgentClient {
 
   /// Submit a USDC approve(escrow, value) and require the tx to mine successfully.
   private async approveEscrow(value: bigint): Promise<void> {
-    const txHash = await this.wallet.writeContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "approve", args: [this.cfg.escrow, value], chain: this.wallet.chain, account: this.account });
+    const txHash = await this.wallet.writeContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "approve", args: [this.cfg.escrow, value], chain: this.wallet.chain, account: this.account });
     const r = await this.pub.waitForTransactionReceipt({ hash: txHash, timeout: 120_000 });
     if (r.status !== "success") throw new Error(`approve reverted (${txHash})`);
   }
@@ -601,9 +614,9 @@ export class AgentClient {
   /// Infinite-approve the VAULT once (distinct from the escrow approval); skip when already covered.
   private async ensureVaultApproval(amount: bigint): Promise<void> {
     const vault = this.requireVault();
-    const allowance = (await this.pub.readContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "allowance", args: [this.address, vault] })) as bigint;
+    const allowance = (await this.pub.readContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "allowance", args: [this.address, vault] })) as bigint;
     if (allowance >= amount) return;
-    const txHash = await this.wallet.writeContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "approve", args: [vault, maxUint256], chain: this.wallet.chain, account: this.account });
+    const txHash = await this.wallet.writeContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "approve", args: [vault, maxUint256], chain: this.wallet.chain, account: this.account });
     const r = await this.pub.waitForTransactionReceipt({ hash: txHash, timeout: 120_000 });
     if (r.status !== "success") throw new Error(`vault approve reverted (${txHash})`);
   }
@@ -703,9 +716,9 @@ export class AgentClient {
   /// the current allowance already covers `amount`. The VAULT is the spender — never the escrow.
   private async ensureYieldApproval(amount: bigint): Promise<void> {
     const vault = this.requireYieldVault();
-    const allowance = (await this.pub.readContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "allowance", args: [this.address, vault] })) as bigint;
+    const allowance = (await this.pub.readContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "allowance", args: [this.address, vault] })) as bigint;
     if (allowance >= amount) return;
-    const txHash = await this.wallet.writeContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "approve", args: [vault, maxUint256], chain: this.wallet.chain, account: this.account });
+    const txHash = await this.wallet.writeContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "approve", args: [vault, maxUint256], chain: this.wallet.chain, account: this.account });
     const r = await this.pub.waitForTransactionReceipt({ hash: txHash, timeout: 120_000 });
     if (r.status !== "success") throw new Error(`yield vault approve reverted (${txHash})`);
   }
@@ -750,7 +763,7 @@ export class AgentClient {
       seller: this.address,
       subscriber: i.subscriber ?? ZERO,
       arbiter: i.arbiter,
-      token: this.cfg.usdc,
+      token: this.cfgUsdc(),
       periodPrice: usd6(i.periodPriceUsd).toString(),
       sellerBond: usd6(i.sellerBondUsd).toString(),
       subscriberBond: usd6(i.subscriberBondUsd).toString(),
@@ -948,7 +961,7 @@ export class AgentClient {
   /// ensureApproval (the escrow path), but the spender is the SubscriptionEscrow contract.
   private async ensureSubApproval(amount: bigint, opts?: { scopedApproval?: boolean }): Promise<void> {
     const spender = this.requireSubscriptionEscrow();
-    const allowance = (await this.pub.readContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "allowance", args: [this.address, spender] })) as bigint;
+    const allowance = (await this.pub.readContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "allowance", args: [this.address, spender] })) as bigint;
     if (opts?.scopedApproval) {
       if (allowance === amount) return;
       await this.approveSpender(spender, amount);
@@ -960,7 +973,7 @@ export class AgentClient {
 
   /// Submit a USDC approve(spender, value) and require the tx to mine successfully (generic spender).
   private async approveSpender(spender: Address, value: bigint): Promise<void> {
-    const txHash = await this.wallet.writeContract({ address: this.cfg.usdc, abi: erc20Abi, functionName: "approve", args: [spender, value], chain: this.wallet.chain, account: this.account });
+    const txHash = await this.wallet.writeContract({ address: this.cfgUsdc(), abi: erc20Abi, functionName: "approve", args: [spender, value], chain: this.wallet.chain, account: this.account });
     const r = await this.pub.waitForTransactionReceipt({ hash: txHash, timeout: 120_000 });
     if (r.status !== "success") throw new Error(`approve reverted (${txHash})`);
   }
@@ -984,7 +997,7 @@ export class AgentClient {
   // ── internals ─────────────────────────────────────────────────────────────
 
   private cfgUsdc(): Address {
-    return this.cfg.usdc;
+    return (this.cfg.usdg ?? this.cfg.usdc)!;
   }
   private cfgEscrow(): Address {
     return this.cfg.escrow;
