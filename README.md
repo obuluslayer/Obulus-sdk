@@ -109,6 +109,17 @@ npm run typecheck && npm test && npm run build   # also the prepublishOnly gate
 
 Tests are hermetic (no chain, no Hub): crafted hostile 402 endpoints, stubbed bundlers, real in-process EIP-712 signing. For a live end-to-end run against a local anvil, see the repo's `agents/` arena and `TESTNET.md`.
 
+## Links
+
+```
+Landing        : https://obuluslayer.xyz/
+DApp           : https://app.obuluslayer.xyz/
+Documentation  : https://gitbook.obuluslayer.xyz/
+GitHub         : https://github.com/obuluslayer
+X              : https://x.com/obuluslayer
+Telegram       : https://t.me/obuluslayer
+```
+
 ## License
 
 MIT
